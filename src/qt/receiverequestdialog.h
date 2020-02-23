@@ -1,52 +1,32 @@
-// Copyright (c) 2011-2013 The Bitcoin developers
-// Distributed under the MIT/X11 software license, see the accompanying
+// Copyright (c) 2011-2019 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef QRCODEDIALOG_H
-#define QRCODEDIALOG_H
+#ifndef BITCOIN_QT_RECEIVEREQUESTDIALOG_H
+#define BITCOIN_QT_RECEIVEREQUESTDIALOG_H
 
-#include "walletmodel.h"
+#include <qt/sendcoinsrecipient.h>
 
 #include <QDialog>
-#include <QImage>
-#include <QLabel>
+
+class WalletModel;
 
 namespace Ui {
     class ReceiveRequestDialog;
 }
-class OptionsModel;
-
-/* Label widget for QR code. This image can be dragged, dropped, copied and saved
- * to disk.
- */
-class QRImageWidget : public QLabel
-{
-    Q_OBJECT
-
-public:
-    explicit QRImageWidget(QWidget *parent = 0);
-    QImage exportImage();
-
-public slots:
-    void saveImage();
-    void copyImage();
-
-protected:
-    virtual void mousePressEvent(QMouseEvent *event);
-};
 
 class ReceiveRequestDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit ReceiveRequestDialog(QWidget *parent = 0);
+    explicit ReceiveRequestDialog(QWidget *parent = nullptr);
     ~ReceiveRequestDialog();
 
-    void setModel(OptionsModel *model);
+    void setModel(WalletModel *model);
     void setInfo(const SendCoinsRecipient &info);
 
-private slots:
+private Q_SLOTS:
     void on_btnCopyURI_clicked();
     void on_btnCopyAddress_clicked();
 
@@ -54,8 +34,8 @@ private slots:
 
 private:
     Ui::ReceiveRequestDialog *ui;
-    OptionsModel *model;
+    WalletModel *model;
     SendCoinsRecipient info;
 };
 
-#endif // QRCODEDIALOG_H
+#endif // BITCOIN_QT_RECEIVEREQUESTDIALOG_H
