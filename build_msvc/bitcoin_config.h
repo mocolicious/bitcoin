@@ -18,7 +18,7 @@
 #define CLIENT_VERSION_MAJOR 0
 
 /* Minor version */
-#define CLIENT_VERSION_MINOR 19
+#define CLIENT_VERSION_MINOR 20
 
 /* Build revision */
 #define CLIENT_VERSION_REVISION 99
@@ -46,9 +46,6 @@
 
 /* define if the Boost library is available */
 #define HAVE_BOOST /**/
-
-/* define if the Boost::Chrono library is available */
-#define HAVE_BOOST_CHRONO /**/
 
 /* define if the Boost::Filesystem library is available */
 #define HAVE_BOOST_FILESYSTEM /**/
@@ -258,12 +255,6 @@
 /* Define if the visibility attribute is supported. */
 #define HAVE_VISIBILITY_ATTRIBUTE 1
 
-/* Define this symbol if boost sleep works */
-/* #undef HAVE_WORKING_BOOST_SLEEP */
-
-/* Define this symbol if boost sleep_for works */
-#define HAVE_WORKING_BOOST_SLEEP_FOR 1
-
 /* Define to the sub-directory where libtool stores uninstalled libraries. */
 #define LT_OBJDIR ".libs/"
 
@@ -312,9 +303,6 @@
 
 /* Define this symbol to build in assembly routines */
 //#define USE_ASM 1
-
-/* Define this symbol if coverage is enabled */
-/* #undef USE_COVERAGE */
 
 /* Define if dbus support should be compiled in */
 /* #undef USE_DBUS */

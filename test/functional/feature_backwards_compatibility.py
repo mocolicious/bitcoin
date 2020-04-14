@@ -40,6 +40,9 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             ["-nowallet", "-walletrbf=1", "-addresstype=bech32"] # v0.17.1
         ]
 
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
+
     def setup_nodes(self):
         if os.getenv("TEST_PREVIOUS_RELEASES") == "false":
             raise SkipTest("backwards compatibility tests")
@@ -113,7 +116,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
         # Create another conflicting transaction using RBF
         tx3_id = self.nodes[1].sendtoaddress(return_address, 1)
         tx4_id = self.nodes[1].bumpfee(tx3_id)["txid"]
-        # Abondon transaction, but don't confirm
+        # Abandon transaction, but don't confirm
         self.nodes[1].abandontransaction(tx3_id)
 
         # w1_v19: regular wallet, created with v0.19

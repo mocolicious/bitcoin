@@ -13,6 +13,7 @@
 #include <init.h>
 #include <miner.h>
 #include <net.h>
+#include <net_processing.h>
 #include <noui.h>
 #include <pow.h>
 #include <rpc/blockchain.h>
@@ -23,15 +24,17 @@
 #include <txdb.h>
 #include <util/memory.h>
 #include <util/strencodings.h>
+#include <util/string.h>
 #include <util/time.h>
 #include <util/translation.h>
-#include <util/validation.h>
+#include <util/url.h>
 #include <validation.h>
 #include <validationinterface.h>
 
 #include <functional>
 
 const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
+UrlDecodeFn* const URL_DECODE = nullptr;
 
 FastRandomContext g_insecure_rand_ctx;
 /** Random context to get unique temp data dirs. Separate from g_insecure_rand_ctx, which can be seeded from a const env var */
@@ -63,7 +66,7 @@ std::ostream& operator<<(std::ostream& os, const uint256& num)
 }
 
 BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
-    : m_path_root{fs::temp_directory_path() / "test_common_" PACKAGE_NAME / std::to_string(g_insecure_rand_ctx_temp_path.rand32())}
+    : m_path_root{fs::temp_directory_path() / "test_common_" PACKAGE_NAME / g_insecure_rand_ctx_temp_path.rand256().ToString()}
 {
     fs::create_directories(m_path_root);
     gArgs.ForceSetArg("-datadir", m_path_root.string());
@@ -111,7 +114,8 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
     GetMainSignals().RegisterBackgroundSignalScheduler(*g_rpc_node->scheduler);
 
     pblocktree.reset(new CBlockTreeDB(1 << 20, true));
-    g_chainstate = MakeUnique<CChainState>();
+
+    g_chainman.InitializeChainstate();
     ::ChainstateActive().InitCoinsDB(
         /* cache_size_bytes */ 1 << 23, /* in_memory */ true, /* should_wipe */ false);
     assert(!::ChainstateActive().CanFlushToDisk());
@@ -123,7 +127,7 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
 
     BlockValidationState state;
     if (!ActivateBestChain(state, chainparams)) {
-        throw std::runtime_error(strprintf("ActivateBestChain failed. (%s)", FormatStateMessage(state)));
+        throw std::runtime_error(strprintf("ActivateBestChain failed. (%s)", state.ToString()));
     }
 
     // Start script-checking threads. Set g_parallel_script_checks to true so they are used.
@@ -137,10 +141,17 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
     m_node.mempool->setSanityCheck(1.0);
     m_node.banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
     m_node.connman = MakeUnique<CConnman>(0x1337, 0x1337); // Deterministic randomness for tests.
+    m_node.peer_logic = MakeUnique<PeerLogicValidation>(m_node.connman.get(), m_node.banman.get(), *m_node.scheduler, *m_node.mempool);
+    {
+        CConnman::Options options;
+        options.m_msgproc = m_node.peer_logic.get();
+        m_node.connman->Init(options);
+    }
 }
 
 TestingSetup::~TestingSetup()
 {
+    if (m_node.scheduler) m_node.scheduler->stop();
     threadGroup.interrupt_all();
     threadGroup.join_all();
     GetMainSignals().FlushBackgroundCallbacks();
@@ -151,7 +162,7 @@ TestingSetup::~TestingSetup()
     m_node.mempool = nullptr;
     m_node.scheduler.reset();
     UnloadBlockIndex();
-    g_chainstate.reset();
+    g_chainman.Reset();
     pblocktree.reset();
 }
 

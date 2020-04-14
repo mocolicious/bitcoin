@@ -28,6 +28,8 @@
 
 
 
+using interfaces::FoundBlock;
+
 std::string static EncodeDumpString(const std::string &str) {
     std::stringstream ret;
     for (const unsigned char c : str) {
@@ -54,18 +56,19 @@ static std::string DecodeDumpString(const std::string &str) {
     return ret.str();
 }
 
-static bool GetWalletAddressesForKey(LegacyScriptPubKeyMan* spk_man, CWallet* const pwallet, const CKeyID& keyid, std::string& strAddr, std::string& strLabel) EXCLUSIVE_LOCKS_REQUIRED(pwallet->cs_wallet)
+static bool GetWalletAddressesForKey(LegacyScriptPubKeyMan* spk_man, const CWallet* const pwallet, const CKeyID& keyid, std::string& strAddr, std::string& strLabel) EXCLUSIVE_LOCKS_REQUIRED(pwallet->cs_wallet)
 {
     bool fLabelFound = false;
     CKey key;
     spk_man->GetKey(keyid, key);
     for (const auto& dest : GetAllDestinationsForKey(key.GetPubKey())) {
-        if (pwallet->mapAddressBook.count(dest)) {
+        const auto* address_book_entry = pwallet->FindAddressBookEntry(dest);
+        if (address_book_entry) {
             if (!strAddr.empty()) {
                 strAddr += ",";
             }
             strAddr += EncodeDestination(dest);
-            strLabel = EncodeDumpString(pwallet->mapAddressBook[dest].name);
+            strLabel = EncodeDumpString(address_book_entry->GetLabel());
             fLabelFound = true;
         }
     }
@@ -106,7 +109,7 @@ UniValue importprivkey(const JSONRPCRequest& request)
                     {"label", RPCArg::Type::STR, /* default */ "current label if address exists, otherwise \"\"", "An optional label"},
                     {"rescan", RPCArg::Type::BOOL, /* default */ "true", "Rescan the wallet for transactions"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{
             "\nDump a private key\n"
             + HelpExampleCli("dumpprivkey", "\"myaddress\"") +
@@ -168,7 +171,7 @@ UniValue importprivkey(const JSONRPCRequest& request)
             // label all new addresses, and label existing addresses if a
             // label was passed.
             for (const auto& dest : GetAllDestinationsForKey(pubkey)) {
-                if (!request.params[1].isNull() || pwallet->mapAddressBook.count(dest) == 0) {
+                if (!request.params[1].isNull() || !pwallet->FindAddressBookEntry(dest)) {
                     pwallet->SetAddressBook(dest, strLabel, "receive");
                 }
             }
@@ -203,7 +206,7 @@ UniValue abortrescan(const JSONRPCRequest& request)
                 "\nStops current wallet rescan triggered by an RPC call, e.g. by an importprivkey call.\n"
                 "Note: Use \"getwalletinfo\" to query the scanning progress.\n",
                 {},
-                RPCResults{},
+                RPCResult{RPCResult::Type::BOOL, "", "Whether the abort was successful"},
                 RPCExamples{
             "\nImport a private key\n"
             + HelpExampleCli("importprivkey", "\"mykey\"") +
@@ -242,7 +245,7 @@ UniValue importaddress(const JSONRPCRequest& request)
                     {"rescan", RPCArg::Type::BOOL, /* default */ "true", "Rescan the wallet for transactions"},
                     {"p2sh", RPCArg::Type::BOOL, /* default */ "false", "Add the P2SH version of the script as well"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{
             "\nImport an address with rescan\n"
             + HelpExampleCli("importaddress", "\"myaddress\"") +
@@ -337,7 +340,7 @@ UniValue importprunedfunds(const JSONRPCRequest& request)
                     {"rawtransaction", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "A raw transaction in hex funding an already-existing address in wallet"},
                     {"txoutproof", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex output from gettxoutproof that contains the transaction"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{""},
             }.Check(request);
 
@@ -359,8 +362,9 @@ UniValue importprunedfunds(const JSONRPCRequest& request)
     }
 
     auto locked_chain = pwallet->chain().lock();
-    Optional<int> height = locked_chain->getBlockHeight(merkleBlock.header.GetHash());
-    if (height == nullopt) {
+    LOCK(pwallet->cs_wallet);
+    int height;
+    if (!pwallet->chain().findAncestorByHash(pwallet->GetLastBlockHash(), merkleBlock.header.GetHash(), FoundBlock().height(height))) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found in chain");
     }
 
@@ -371,10 +375,8 @@ UniValue importprunedfunds(const JSONRPCRequest& request)
 
     unsigned int txnIndex = vIndex[it - vMatch.begin()];
 
-    CWalletTx::Confirmation confirm(CWalletTx::Status::CONFIRMED, *height, merkleBlock.header.GetHash(), txnIndex);
+    CWalletTx::Confirmation confirm(CWalletTx::Status::CONFIRMED, height, merkleBlock.header.GetHash(), txnIndex);
     wtx.m_confirm = confirm;
-
-    LOCK(pwallet->cs_wallet);
 
     if (pwallet->IsMine(*wtx.tx)) {
         pwallet->AddToWallet(wtx, false);
@@ -397,7 +399,7 @@ UniValue removeprunedfunds(const JSONRPCRequest& request)
                 {
                     {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex-encoded id of the transaction you are deleting"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{
                     HelpExampleCli("removeprunedfunds", "\"a8d0c0184dde994a09ec054286f1ce581bebf46446a512166eae7628734ea0a5\"") +
             "\nAs a JSON-RPC call\n"
@@ -443,7 +445,7 @@ UniValue importpubkey(const JSONRPCRequest& request)
                     {"label", RPCArg::Type::STR, /* default */ "\"\"", "An optional label"},
                     {"rescan", RPCArg::Type::BOOL, /* default */ "true", "Rescan the wallet for transactions"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{
             "\nImport a public key with rescan\n"
             + HelpExampleCli("importpubkey", "\"mypubkey\"") +
@@ -527,7 +529,7 @@ UniValue importwallet(const JSONRPCRequest& request)
                 {
                     {"filename", RPCArg::Type::STR, RPCArg::Optional::NO, "The wallet file"},
                 },
-                RPCResults{},
+                RPCResult{RPCResult::Type::NONE, "", ""},
                 RPCExamples{
             "\nDump the wallet\n"
             + HelpExampleCli("dumpwallet", "\"test\"") +
@@ -565,8 +567,7 @@ UniValue importwallet(const JSONRPCRequest& request)
         if (!file.is_open()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
         }
-        Optional<int> tip_height = locked_chain->getHeight();
-        nTimeBegin = tip_height ? locked_chain->getBlockTime(*tip_height) : 0;
+        CHECK_NONFATAL(pwallet->chain().findBlock(pwallet->GetLastBlockHash(), FoundBlock().time(nTimeBegin)));
 
         int64_t nFilesize = std::max((int64_t)1, (int64_t)file.tellg());
         file.seekg(0, file.beg);
@@ -676,7 +677,7 @@ UniValue importwallet(const JSONRPCRequest& request)
 UniValue dumpprivkey(const JSONRPCRequest& request)
 {
     std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-    CWallet* const pwallet = wallet.get();
+    const CWallet* const pwallet = wallet.get();
     if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
         return NullUniValue;
     }
@@ -688,7 +689,7 @@ UniValue dumpprivkey(const JSONRPCRequest& request)
                     {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The bitcoin address for the private key"},
                 },
                 RPCResult{
-            "\"key\"                (string) The private key\n"
+                    RPCResult::Type::STR, "key", "The private key"
                 },
                 RPCExamples{
                     HelpExampleCli("dumpprivkey", "\"myaddress\"")
@@ -724,7 +725,7 @@ UniValue dumpprivkey(const JSONRPCRequest& request)
 UniValue dumpwallet(const JSONRPCRequest& request)
 {
     std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-    CWallet* const pwallet = wallet.get();
+    const CWallet* const pwallet = wallet.get();
     if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
         return NullUniValue;
     }
@@ -738,9 +739,10 @@ UniValue dumpwallet(const JSONRPCRequest& request)
                     {"filename", RPCArg::Type::STR, RPCArg::Optional::NO, "The filename with path (either absolute or relative to bitcoind)"},
                 },
                 RPCResult{
-            "{                           (json object)\n"
-            "  \"filename\" : {        (string) The filename with full absolute path\n"
-            "}\n"
+                    RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::STR, "filename", "The filename with full absolute path"},
+                    }
                 },
                 RPCExamples{
                     HelpExampleCli("dumpwallet", "\"test\"")
@@ -789,9 +791,10 @@ UniValue dumpwallet(const JSONRPCRequest& request)
     // produce output
     file << strprintf("# Wallet dump created by Bitcoin %s\n", CLIENT_BUILD);
     file << strprintf("# * Created on %s\n", FormatISO8601DateTime(GetTime()));
-    const Optional<int> tip_height = locked_chain->getHeight();
-    file << strprintf("# * Best block at time of backup was %i (%s),\n", tip_height.get_value_or(-1), tip_height ? locked_chain->getBlockHash(*tip_height).ToString() : "(missing block hash)");
-    file << strprintf("#   mined on %s\n", tip_height ? FormatISO8601DateTime(locked_chain->getBlockTime(*tip_height)) : "(missing block time)");
+    file << strprintf("# * Best block at time of backup was %i (%s),\n", pwallet->GetLastBlockHeight(), pwallet->GetLastBlockHash().ToString());
+    int64_t block_time = 0;
+    CHECK_NONFATAL(pwallet->chain().findBlock(pwallet->GetLastBlockHash(), FoundBlock().time(block_time)));
+    file << strprintf("#   mined on %s\n", FormatISO8601DateTime(block_time));
     file << "\n";
 
     // add the base58check encoded extended master if the wallet uses HD
@@ -1321,19 +1324,21 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
                         "\"options\""},
                 },
                 RPCResult{
-            "[                              (json array) Response is an array with the same size as the input that has the execution result\n"
-            "  {                            (json object)\n"
-            "    \"success\" : true|false,    (boolean)\n"
-            "    \"warnings\" : [             (json array, optional)\n"
-            "      \"str\",                   (string)\n"
-            "      ...\n"
-            "    ],\n"
-            "    \"error\" : {                (json object, optional)\n"
-            "        ...                    JSONRPC error\n"
-            "    },\n"
-            "  },\n"
-            "  ...\n"
-            "]\n"
+                    RPCResult::Type::ARR, "", "Response is an array with the same size as the input that has the execution result",
+                    {
+                        {RPCResult::Type::OBJ, "", "",
+                        {
+                            {RPCResult::Type::BOOL, "success", ""},
+                            {RPCResult::Type::ARR, "warnings", /* optional */ true, "",
+                            {
+                                {RPCResult::Type::STR, "", ""},
+                            }},
+                            {RPCResult::Type::OBJ, "error", /* optional */ true, "",
+                            {
+                                {RPCResult::Type::ELISION, "", "JSONRPC error"},
+                            }},
+                        }},
+                    }
                 },
                 RPCExamples{
                     HelpExampleCli("importmulti", "'[{ \"scriptPubKey\": { \"address\": \"<my address>\" }, \"timestamp\":1455191478 }, "
@@ -1375,19 +1380,12 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
         EnsureWalletIsUnlocked(pwallet);
 
         // Verify all timestamps are present before importing any keys.
-        const Optional<int> tip_height = locked_chain->getHeight();
-        now = tip_height ? locked_chain->getBlockMedianTimePast(*tip_height) : 0;
+        CHECK_NONFATAL(pwallet->chain().findBlock(pwallet->GetLastBlockHash(), FoundBlock().time(nLowestTimestamp).mtpTime(now)));
         for (const UniValue& data : requests.getValues()) {
             GetImportTimestamp(data, now);
         }
 
         const int64_t minimumTimestamp = 1;
-
-        if (fRescan && tip_height) {
-            nLowestTimestamp = locked_chain->getBlockTime(*tip_height);
-        } else {
-            fRescan = false;
-        }
 
         for (const UniValue& data : requests.getValues()) {
             const int64_t timestamp = std::max(GetImportTimestamp(data, now), minimumTimestamp);

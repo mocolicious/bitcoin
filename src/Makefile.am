@@ -178,7 +178,6 @@ BITCOIN_CORE_H = \
   random.h \
   randomenv.h \
   reverse_iterator.h \
-  reverselock.h \
   rpc/blockchain.h \
   rpc/client.h \
   rpc/protocol.h \
@@ -220,6 +219,7 @@ BITCOIN_CORE_H = \
   util/system.h \
   util/macros.h \
   util/memory.h \
+  util/message.h \
   util/moneystr.h \
   util/rbf.h \
   util/settings.h \
@@ -228,7 +228,6 @@ BITCOIN_CORE_H = \
   util/time.h \
   util/translation.h \
   util/url.h \
-  util/validation.h \
   util/vector.h \
   validation.h \
   validationinterface.h \
@@ -242,7 +241,6 @@ BITCOIN_CORE_H = \
   wallet/fees.h \
   wallet/ismine.h \
   wallet/load.h \
-  wallet/psbtwallet.h \
   wallet/rpcwallet.h \
   wallet/scriptpubkeyman.h \
   wallet/wallet.h \
@@ -350,7 +348,6 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/feebumper.cpp \
   wallet/fees.cpp \
   wallet/load.cpp \
-  wallet/psbtwallet.cpp \
   wallet/rpcdump.cpp \
   wallet/rpcwallet.cpp \
   wallet/scriptpubkeyman.cpp \
@@ -517,6 +514,7 @@ libbitcoin_util_a_SOURCES = \
   util/error.cpp \
   util/fees.cpp \
   util/system.cpp \
+  util/message.cpp \
   util/moneystr.cpp \
   util/rbf.cpp \
   util/settings.cpp \
@@ -525,9 +523,11 @@ libbitcoin_util_a_SOURCES = \
   util/strencodings.cpp \
   util/string.cpp \
   util/time.cpp \
-  util/url.cpp \
-  util/validation.cpp \
   $(BITCOIN_CORE_H)
+
+if USE_LIBEVENT
+libbitcoin_util_a_SOURCES += util/url.cpp
+endif
 
 if GLIBC_BACK_COMPAT
 libbitcoin_util_a_SOURCES += compat/glibc_compat.cpp
@@ -706,6 +706,11 @@ if TARGET_DARWIN
 	$(AM_V_at) OTOOL=$(OTOOL) $(PYTHON) $(top_srcdir)/contrib/devtools/symbol-check.py $(bin_PROGRAMS)
 endif
 
+if TARGET_WINDOWS
+	@echo "Checking Windows dynamic libraries..."
+	$(AM_V_at) OBJDUMP=$(OBJDUMP) $(PYTHON) $(top_srcdir)/contrib/devtools/symbol-check.py $(bin_PROGRAMS)
+endif
+
 if GLIBC_BACK_COMPAT
 	@echo "Checking glibc back compat..."
 	$(AM_V_at) READELF=$(READELF) CPPFILT=$(CPPFILT) $(PYTHON) $(top_srcdir)/contrib/devtools/symbol-check.py $(bin_PROGRAMS)
@@ -723,6 +728,7 @@ include Makefile.leveldb.include
 endif
 
 include Makefile.test_util.include
+include Makefile.test_fuzz.include
 
 if ENABLE_TESTS
 include Makefile.test.include

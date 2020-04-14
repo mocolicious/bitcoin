@@ -39,6 +39,7 @@ MAX_LOCATOR_SZ = 101
 MAX_BLOCK_BASE_SIZE = 1000000
 
 COIN = 100000000  # 1 btc in satoshis
+MAX_MONEY = 21000000 * COIN
 
 BIP125_SEQUENCE_NUMBER = 0xfffffffd  # Sequence number that is BIP 125 opt-in and BIP 68-opt-out
 
@@ -50,6 +51,7 @@ NODE_NETWORK_LIMITED = (1 << 10)
 
 MSG_TX = 1
 MSG_BLOCK = 2
+MSG_FILTERED_BLOCK = 3
 MSG_WITNESS_FLAG = 1 << 30
 MSG_TYPE_MASK = 0xffffffff >> 2
 
@@ -224,10 +226,11 @@ class CInv:
 
     typemap = {
         0: "Error",
-        1: "TX",
-        2: "Block",
-        1|MSG_WITNESS_FLAG: "WitnessTx",
-        2|MSG_WITNESS_FLAG : "WitnessBlock",
+        MSG_TX: "TX",
+        MSG_BLOCK: "Block",
+        MSG_TX | MSG_WITNESS_FLAG: "WitnessTx",
+        MSG_BLOCK | MSG_WITNESS_FLAG: "WitnessBlock",
+        MSG_FILTERED_BLOCK: "filtered Block",
         4: "CompactBlock"
     }
 
@@ -1316,6 +1319,90 @@ class msg_headers:
     def __repr__(self):
         return "msg_headers(headers=%s)" % repr(self.headers)
 
+
+class msg_merkleblock:
+    __slots__ = ("merkleblock",)
+    command = b"merkleblock"
+
+    def __init__(self, merkleblock=None):
+        if merkleblock is None:
+            self.merkleblock = CMerkleBlock()
+        else:
+            self.merkleblock = merkleblock
+
+    def deserialize(self, f):
+        self.merkleblock.deserialize(f)
+
+    def serialize(self):
+        return self.merkleblock.serialize()
+
+    def __repr__(self):
+        return "msg_merkleblock(merkleblock=%s)" % (repr(self.merkleblock))
+
+
+class msg_filterload:
+    __slots__ = ("data", "nHashFuncs", "nTweak", "nFlags")
+    command = b"filterload"
+
+    def __init__(self, data=b'00', nHashFuncs=0, nTweak=0, nFlags=0):
+        self.data = data
+        self.nHashFuncs = nHashFuncs
+        self.nTweak = nTweak
+        self.nFlags = nFlags
+
+    def deserialize(self, f):
+        self.data = deser_string(f)
+        self.nHashFuncs = struct.unpack("<I", f.read(4))[0]
+        self.nTweak = struct.unpack("<I", f.read(4))[0]
+        self.nFlags = struct.unpack("<B", f.read(1))[0]
+
+    def serialize(self):
+        r = b""
+        r += ser_string(self.data)
+        r += struct.pack("<I", self.nHashFuncs)
+        r += struct.pack("<I", self.nTweak)
+        r += struct.pack("<B", self.nFlags)
+        return r
+
+    def __repr__(self):
+        return "msg_filterload(data={}, nHashFuncs={}, nTweak={}, nFlags={})".format(
+            self.data, self.nHashFuncs, self.nTweak, self.nFlags)
+
+
+class msg_filteradd:
+    __slots__ = ("data")
+    command = b"filteradd"
+
+    def __init__(self, data):
+        self.data = data
+
+    def deserialize(self, f):
+        self.data = deser_string(f)
+
+    def serialize(self):
+        r = b""
+        r += ser_string(self.data)
+        return r
+
+    def __repr__(self):
+        return "msg_filteradd(data={})".format(self.data)
+
+
+class msg_filterclear:
+    __slots__ = ()
+    command = b"filterclear"
+
+    def __init__(self):
+        pass
+
+    def deserialize(self, f):
+        pass
+
+    def serialize(self):
+        return b""
+
+    def __repr__(self):
+        return "msg_filterclear()"
 
 
 class msg_feefilter:

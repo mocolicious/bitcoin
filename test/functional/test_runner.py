@@ -19,9 +19,8 @@ import datetime
 import os
 import time
 import shutil
-import signal
-import sys
 import subprocess
+import sys
 import tempfile
 import re
 import logging
@@ -145,9 +144,11 @@ BASE_SCRIPTS = [
     'rpc_blockchain.py',
     'rpc_deprecated.py',
     'wallet_disable.py',
+    'p2p_addr_relay.py',
     'rpc_net.py',
     'wallet_keypool.py',
     'p2p_mempool.py',
+    'p2p_filter.py',
     'rpc_setban.py',
     'p2p_blocksonly.py',
     'mining_prioritisetransaction.py',
@@ -172,6 +173,7 @@ BASE_SCRIPTS = [
     'wallet_importprunedfunds.py',
     'p2p_leak_tx.py',
     'rpc_signmessage.py',
+    'rpc_generateblock.py',
     'wallet_balance.py',
     'feature_nulldummy.py',
     'mempool_accept.py',
@@ -183,7 +185,6 @@ BASE_SCRIPTS = [
     'rpc_bind.py --nonloopback',
     'mining_basic.py',
     'wallet_bumpfee.py',
-    'wallet_bumpfee_totalfee_deprecation.py',
     'wallet_implicitsegwit.py',
     'rpc_named_arguments.py',
     'wallet_listsinceblock.py',
@@ -196,6 +197,7 @@ BASE_SCRIPTS = [
     'wallet_fallbackfee.py',
     'rpc_dumptxoutset.py',
     'feature_minchainwork.py',
+    'rpc_estimatefee.py',
     'rpc_getblockstats.py',
     'wallet_create_tx.py',
     'p2p_fingerprint.py',
@@ -206,6 +208,7 @@ BASE_SCRIPTS = [
     'p2p_dos_header_tree.py',
     'p2p_unrequested_blocks.py',
     'feature_includeconf.py',
+    'feature_asmap.py',
     'rpc_deriveaddresses.py',
     'rpc_deriveaddresses.py --usecli',
     'rpc_scantxoutset.py',
@@ -216,9 +219,11 @@ BASE_SCRIPTS = [
     'feature_config_args.py',
     'rpc_getaddressinfo_labels_purpose_deprecation.py',
     'rpc_getaddressinfo_label_deprecation.py',
+    'rpc_getdescriptorinfo.py',
     'rpc_help.py',
     'feature_help.py',
     'feature_shutdown.py',
+    'framework_test_script.py',
     # Don't append tests at the end to avoid merge conflicts
     # Put them in a random line within the section that fits their approximate run-time
 ]
@@ -362,11 +367,10 @@ def main():
         args=passon_args,
         combined_logs_len=args.combinedlogslen,
         failfast=args.failfast,
-        runs_ci=args.ci,
         use_term_control=args.ansi,
     )
 
-def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, enable_coverage=False, args=None, combined_logs_len=0, failfast=False, runs_ci, use_term_control):
+def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, enable_coverage=False, args=None, combined_logs_len=0, failfast=False, use_term_control):
     args = args or []
 
     # Warn if bitcoind is already running
@@ -408,7 +412,6 @@ def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, enable_coverage=
         tmpdir=tmpdir,
         test_list=test_list,
         flags=flags,
-        timeout_duration=40 * 60 if runs_ci else float('inf'),  # in seconds
         use_term_control=use_term_control,
     )
     start_time = time.time()
@@ -493,12 +496,11 @@ class TestHandler:
     Trigger the test scripts passed in via the list.
     """
 
-    def __init__(self, *, num_tests_parallel, tests_dir, tmpdir, test_list, flags, timeout_duration, use_term_control):
+    def __init__(self, *, num_tests_parallel, tests_dir, tmpdir, test_list, flags, use_term_control):
         assert num_tests_parallel >= 1
         self.num_jobs = num_tests_parallel
         self.tests_dir = tests_dir
         self.tmpdir = tmpdir
-        self.timeout_duration = timeout_duration
         self.test_list = test_list
         self.flags = flags
         self.num_running = 0
@@ -539,10 +541,6 @@ class TestHandler:
             time.sleep(.5)
             for job in self.jobs:
                 (name, start_time, proc, testdir, log_out, log_err) = job
-                if int(time.time() - start_time) > self.timeout_duration:
-                    # Timeout individual tests if timeout is specified (to stop
-                    # tests hanging and not providing useful output).
-                    proc.send_signal(signal.SIGINT)
                 if proc.poll() is not None:
                     log_out.seek(0), log_err.seek(0)
                     [stdout, stderr] = [log_file.read().decode('utf-8') for log_file in (log_out, log_err)]
@@ -611,7 +609,7 @@ class TestResult():
 def check_script_prefixes():
     """Check that test scripts start with one of the allowed name prefixes."""
 
-    good_prefixes_re = re.compile("(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool)_")
+    good_prefixes_re = re.compile("^(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool|framework_test)_")
     bad_script_names = [script for script in ALL_SCRIPTS if good_prefixes_re.match(script) is None]
 
     if bad_script_names:
